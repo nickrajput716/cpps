@@ -13,6 +13,7 @@ from flask import (
     redirect, url_for, session
 )
 from werkzeug.utils import secure_filename
+from ml_predictor import predictor as ml_predictor
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -195,8 +196,27 @@ def analyse_video_worker(job_id, video_path):
             accel      = abs(avg_speed - prev_speed)
             prev_speed = avg_speed
 
-            score = panic_score_from_metrics(avg_speed, entropy, density, accel, turb, div)
-            risk  = risk_label(score)
+
+            # Append current frame's features to the running buffer for this job
+            if 'feature_buffer' not in jobs[job_id]:
+                jobs[job_id]['feature_buffer'] = []
+
+            jobs[job_id]['feature_buffer'].append(
+                [avg_speed, entropy, density, accel, turb, div]
+            )
+
+            # Try ML prediction (needs >= 30 frames of history)
+            ml_score = ml_predictor.predict(jobs[job_id]['feature_buffer'])
+
+            if ml_score is not None:
+                score = float(np.clip(ml_score, 0, 100))
+            else:
+                # Fallback: use the existing weighted formula until buffer is full
+                score = panic_score_from_metrics(avg_speed, entropy, density, accel, turb, div)
+
+            risk = risk_label(score)
+
+            # ── END PASTE ──
             ts    = round(frame_num / fps, 2)
 
             rec = {
@@ -312,8 +332,25 @@ def process_live_frame(session_id, frame_b64):
     accel      = abs(avg_speed - s['prev_speed'])
     s['prev_speed'] = avg_speed
 
-    score = panic_score_from_metrics(avg_speed, entropy, density, accel, turb, div)
-    risk  = risk_label(score)
+    # ── PASTE THIS in process_live_frame, replacing the two lines above ──
+
+    s['feature_buffer'] = s.get('feature_buffer', [])
+    s['feature_buffer'].append([avg_speed, entropy, density, accel, turb, div])
+
+    if len(s['feature_buffer']) > 120:          # keep last 120 frames (~2 min)
+        s['feature_buffer'] = s['feature_buffer'][-120:]
+
+    ml_score = ml_predictor.predict(s['feature_buffer'])
+
+    if ml_score is not None:
+        score = float(np.clip(ml_score, 0, 100))
+    else:
+        score = panic_score_from_metrics(avg_speed, entropy, density, accel, turb, div)
+
+    risk = risk_label(score)
+
+    # ── END PASTE ──
+
 
     s['prev_gray'] = gray
     s['history'].append(round(score, 2))
