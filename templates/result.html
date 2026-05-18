@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analysis Report — CPPS</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── Page-specific extras ── */
+    .report-nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(20,18,16,0.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 0;
+      margin-bottom: 40px;
+    }
+
+    .report-nav-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+    }
+
+    .rnav-link {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: .06em;
+      color: var(--text-dim);
+      text-decoration: none;
+      padding: 5px 14px;
+      border-radius: 2px;
+      white-space: nowrap;
+      transition: color .2s, background .2s;
+    }
+
+    .rnav-link:hover {
+      color: var(--accent);
+      background: var(--accent-faint);
+    }
+
+    .rnav-sep {
+      color: var(--border-mid);
+      font-size: 12px;
+    }
+
+    .section-anchor {
+      scroll-margin-top: 72px;
+    }
+
+    .inline-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="scanline-overlay"></div>
+<canvas id="particle-canvas"></canvas>
+
+<!-- TOP NAV -->
+<div class="page-wrapper" style="padding-bottom:0">
+  <nav class="topbar">
+    <a href="/" class="topbar-logo">
+      <div class="logo-icon"></div>
+      <div>
+        <div class="logo-text">CPPS</div>
+        <div class="logo-sub">Crowd Panic Prediction System</div>
+      </div>
+    </a>
+  </nav>
+</div>
+
+<!-- STICKY REPORT NAV -->
+<div class="report-nav">
+  <div class="report-nav-inner">
+    <a href="#overview"    class="rnav-link">Overview</a>
+    <span class="rnav-sep">·</span>
+    <a href="#cv-metrics"  class="rnav-link">CV Metrics</a>
+    <span class="rnav-sep">·</span>
+    <a href="#timeline"    class="rnav-link">Timeline</a>
+    <span class="rnav-sep">·</span>
+    <a href="#keyframes"   class="rnav-link">Key Frames</a>
+    <span class="rnav-sep">·</span>
+    <a href="#frame-data"  class="rnav-link">Frame Data</a>
+    <span class="rnav-sep">·</span>
+    <a href="#export"      class="rnav-link">Export</a>
+  </div>
+</div>
+
+<div class="page-wrapper">
+
+  <!-- BREADCRUMB -->
+  <div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="breadcrumb-sep">›</span>
+    <span>Analysis Report</span>
+    {% if job_id != 'demo' %}
+    <span class="breadcrumb-sep">›</span>
+    <span class="mono" style="color:var(--accent)">{{ job_id[:8].upper() }}…</span>
+    {% endif %}
+  </div>
+
+  {% if result.get('is_demo') %}
+  <div class="demo-banner">⚠ Synthetic demo data — not real footage</div>
+  {% endif %}
+
+  <!-- ── SECTION: OVERVIEW ── -->
+  <section id="overview" class="section-anchor">
+
+    <div style="margin-bottom:32px">
+      <h1 style="font-family:var(--font-display);font-size:30px;font-weight:800;color:var(--text-primary);letter-spacing:-0.02em;margin-bottom:8px">
+        Analysis Report
+      </h1>
+      <p style="font-size:14px;color:var(--text-dim);font-family:var(--font-mono)">
+        {{ result.duration_seconds }}s of footage · {{ result.total_frames_analysed }} frames · {{ result.fps }} fps
+      </p>
+    </div>
+
+    <div class="stat-grid mb-32">
+      <div class="stat-card">
+        <div class="stat-label">Overall Risk</div>
+        <div class="stat-value" style="font-size:22px;margin-top:4px">
+          <span class="risk-badge {{ result.overall_risk }}" style="font-size:13px;padding:5px 14px">{{ result.overall_risk }}</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Max Panic Score</div>
+        <div class="stat-value
+          {% if result.max_panic_score >= 80 %}red
+          {% elif result.max_panic_score >= 65 %}orange
+          {% elif result.max_panic_score >= 45 %}amber
+          {% else %}cyan{% endif %}">
+          {{ result.max_panic_score }}
+        </div>
+        <div class="stat-unit">/ 100</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Panic Score</div>
+        <div class="stat-value cyan">{{ result.avg_panic_score }}</div>
+        <div class="stat-unit">/ 100</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Peak at</div>
+        <div class="stat-value cyan">{{ result.peak_panic_timestamp }}</div>
+        <div class="stat-unit">seconds</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Duration</div>
+        <div class="stat-value" style="font-size:24px">{{ result.duration_seconds }}s</div>
+        <div class="stat-unit">at {{ result.fps }} fps</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Frames Analysed</div>
+        <div class="stat-value cyan">{{ result.total_frames_analysed }}</div>
+        <div class="stat-unit">samples</div>
+      </div>
+    </div>
+
+    <div class="recommendation {{ result.overall_risk }}">
+      <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--accent);margin-bottom:8px;text-transform:uppercase">Recommendation</div>
+      {{ result.recommendation }}
+    </div>
+
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION: CV METRICS ── -->
+  <section id="cv-metrics" class="section-anchor">
+    <div class="section-header mb-16">
+      <span class="section-label">CV Metrics Summary</span>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="stat-grid mb-32" style="grid-template-columns:repeat(auto-fit,minmax(175px,1fr))">
+      <div class="stat-card">
+        <div class="stat-label">Max Speed</div>
+        <div class="stat-value cyan" style="font-size:24px">{{ result.metrics_summary.max_speed }}</div>
+        <div class="stat-unit">px/frame — running / fleeing</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Max Entropy</div>
+        <div class="stat-value cyan" style="font-size:24px">{{ result.metrics_summary.max_entropy }}</div>
+        <div class="stat-unit">1.0 = total directional chaos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Max Density</div>
+        <div class="stat-value cyan" style="font-size:24px">{{ result.metrics_summary.max_density }}</div>
+        <div class="stat-unit">foreground pixel ratio</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Max Acceleration</div>
+        <div class="stat-value cyan" style="font-size:24px">{{ result.metrics_summary.max_accel }}</div>
+        <div class="stat-unit">sudden speed change</div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION: TIMELINE ── -->
+  <section id="timeline" class="section-anchor">
+    <div class="section-header mb-16">
+      <span class="section-label">Panic Score Timeline</span>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="chart-container mb-24">
+      <div class="chart-title">Panic Score Over Time</div>
+      <canvas id="panicChart" class="main-chart"></canvas>
+    </div>
+
+    <div class="chart-container mb-32">
+      <div class="chart-title">Individual Signal Traces — Speed · Entropy · Density</div>
+      <canvas id="metricsChart" class="main-chart"></canvas>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION: KEY FRAMES ── -->
+  {% if result.key_frames %}
+  <section id="keyframes" class="section-anchor">
+    <div class="section-header mb-16">
+      <span class="section-label">Annotated Key Frames</span>
+      <div class="section-line"></div>
+    </div>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:20px;font-family:var(--font-mono)">
+      Optical flow overlay · arrows: green = slow, red = fast · banner = panic score
+    </p>
+
+    <div class="keyframes-grid mb-32">
+      {% for kf in result.key_frames %}
+      <div class="keyframe-card">
+        <img src="data:image/jpeg;base64,{{ kf.image }}" alt="Frame at {{ kf.timestamp }}s" loading="lazy">
+        <div class="keyframe-info">
+          <span class="keyframe-ts">t = {{ kf.timestamp }}s</span>
+          <span class="risk-badge {{ kf.risk }}" style="font-size:10px">{{ kf.risk }}</span>
+          <span class="keyframe-score">{{ kf.score }}/100</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  <hr class="divider">
+  {% endif %}
+
+  <!-- ── SECTION: FRAME DATA ── -->
+  <section id="frame-data" class="section-anchor">
+    <div class="section-header mb-16">
+      <span class="section-label">Frame-by-Frame Data</span>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="panel mb-24">
+      <div class="filter-bar">
+        <div class="filter-group">
+          <span class="filter-label">Risk</span>
+          <select id="riskFilter" onchange="filterTable()">
+            <option value="">All</option>
+            <option value="NORMAL">Normal</option>
+            <option value="LOW">Low</option>
+            <option value="MODERATE">Moderate</option>
+            <option value="HIGH">High</option>
+            <option value="CRITICAL">Critical</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Min Score</span>
+          <input type="number" id="minScore" value="0" min="0" max="100" onchange="filterTable()" style="width:68px">
+        </div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-left:auto">
+          <span id="rowCount" style="color:var(--accent)">{{ result.frame_analyses|length }}</span> rows shown
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="data-table" id="frameTable">
+          <thead>
+            <tr>
+              <th>Frame</th>
+              <th>Time (s)</th>
+              <th>Panic Score</th>
+              <th>Risk</th>
+              <th>Avg Speed</th>
+              <th>Entropy</th>
+              <th>Density</th>
+              <th>Acceleration</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            {% for row in result.frame_analyses %}
+            <tr data-risk="{{ row.risk_level }}" data-score="{{ row.panic_score }}">
+              <td>{{ row.frame }}</td>
+              <td>{{ row.timestamp }}</td>
+              <td><span class="risk-badge {{ row.risk_level }}" style="font-size:10px;padding:2px 8px">{{ row.panic_score }}</span></td>
+              <td><span class="risk-badge {{ row.risk_level }}" style="font-size:10px">{{ row.risk_level }}</span></td>
+              <td>{{ row.avg_speed }}</td>
+              <td>{{ row.entropy }}</td>
+              <td>{{ row.density }}</td>
+              <td>{{ row.acceleration }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- ── SECTION: EXPORT ── -->
+  <section id="export" class="section-anchor">
+    <div class="section-header mb-16">
+      <span class="section-label">Export</span>
+      <div class="section-line"></div>
+    </div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:48px">
+      <button class="btn btn-primary" onclick="downloadJSON()">Download JSON Report</button>
+      <a href="/" class="btn btn-secondary">← Analyse Another Video</a>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <span class="footer-text">CPPS v2.0 · Python · Flask · OpenCV · Farneback Optical Flow · MOG2</span>
+    <span class="footer-text" style="color:var(--sage)">Analysis complete</span>
+  </footer>
+
+</div>
+
+<script>
+const chartData = {{ result.chart | tojson }};
+
+Chart.defaults.color = '#5a5248';
+Chart.defaults.borderColor = 'rgba(200,132,90,0.07)';
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+
+function scoreToRgba(s, a) {
+  if (s < 25) return `rgba(122,158,138,${a})`;
+  if (s < 45) return `rgba(168,184,90,${a})`;
+  if (s < 65) return `rgba(200,168,74,${a})`;
+  if (s < 80) return `rgba(200,122,58,${a})`;
+  return `rgba(184,64,64,${a})`;
+}
+
+new Chart(document.getElementById('panicChart'), {
+  type: 'bar',
+  data: {
+    labels: chartData.timestamps,
+    datasets: [{
+      label: 'Panic Score',
+      data: chartData.panic_scores,
+      backgroundColor: chartData.panic_scores.map(s => scoreToRgba(s, 0.55)),
+      borderColor: chartData.panic_scores.map(s => scoreToRgba(s, 0.9)),
+      borderWidth: 1,
+      borderRadius: 2,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'rgba(20,18,16,0.95)',
+        borderColor: 'rgba(200,132,90,0.25)',
+        borderWidth: 1,
+        callbacks: {
+          afterLabel: ctx => {
+            const s = ctx.parsed.y;
+            if (s < 25) return 'Risk: NORMAL';
+            if (s < 45) return 'Risk: LOW';
+            if (s < 65) return 'Risk: MODERATE';
+            if (s < 80) return 'Risk: HIGH';
+            return 'Risk: CRITICAL';
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(200,132,90,0.05)' },
+        ticks: { maxTicksLimit: 12, font: { size: 10 } },
+        title: { display: true, text: 'Time (seconds)', color: '#5a5248', font: { size: 11 } }
+      },
+      y: {
+        min: 0, max: 100,
+        grid: { color: 'rgba(200,132,90,0.05)' },
+        title: { display: true, text: 'Panic Score', color: '#5a5248', font: { size: 11 } }
+      }
+    }
+  }
+});
+
+const maxSpeed = Math.max(...chartData.speeds) || 1;
+const maxDens  = Math.max(...chartData.densities) || 1;
+
+new Chart(document.getElementById('metricsChart'), {
+  type: 'line',
+  data: {
+    labels: chartData.timestamps,
+    datasets: [
+      { label: 'Speed (norm.)', data: chartData.speeds.map(v=>v/maxSpeed), borderColor:'#c8845a', backgroundColor:'rgba(200,132,90,0.06)', fill:true, tension:0.4, pointRadius:0, borderWidth:1.5 },
+      { label: 'Direction Entropy', data: chartData.entropies, borderColor:'#b84040', backgroundColor:'rgba(184,64,64,0.04)', fill:true, tension:0.4, pointRadius:0, borderWidth:1.5 },
+      { label: 'Density (norm.)', data: chartData.densities.map(v=>v/maxDens), borderColor:'#7a9e8a', backgroundColor:'rgba(122,158,138,0.04)', fill:true, tension:0.4, pointRadius:0, borderWidth:1.5 },
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display:true, labels:{ color:'#9e9080', usePointStyle:true, pointStyleWidth:10, font:{size:11} } },
+      tooltip: { backgroundColor:'rgba(20,18,16,0.95)', borderColor:'rgba(200,132,90,0.25)', borderWidth:1 }
+    },
+    scales: {
+      x: {
+        grid: { color:'rgba(200,132,90,0.05)' },
+        ticks: { maxTicksLimit:12, font:{size:10} },
+        title: { display:true, text:'Time (seconds)', color:'#5a5248', font:{size:11} }
+      },
+      y: {
+        min:0, max:1,
+        grid: { color:'rgba(200,132,90,0.05)' },
+        title: { display:true, text:'Normalised Value', color:'#5a5248', font:{size:11} }
+      }
+    }
+  }
+});
+
+function filterTable() {
+  const risk  = document.getElementById('riskFilter').value;
+  const minSc = parseFloat(document.getElementById('minScore').value)||0;
+  const rows  = document.querySelectorAll('#tableBody tr');
+  let visible = 0;
+  rows.forEach(r=>{
+    const show = (!risk||r.dataset.risk===risk) && parseFloat(r.dataset.score)>=minSc;
+    r.style.display = show?'':'none';
+    if (show) visible++;
+  });
+  document.getElementById('rowCount').textContent = visible;
+}
+
+function downloadJSON() {
+  const raw = {{ result | tojson }};
+  raw.key_frames = raw.key_frames.map(kf=>({timestamp:kf.timestamp,score:kf.score,risk:kf.risk}));
+  const blob = new Blob([JSON.stringify(raw,null,2)],{type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url;a.download='cpps_report.json';a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+
+<script>
+(function(){
+  const canvas=document.getElementById('particle-canvas');
+  const ctx=canvas.getContext('2d');
+  let W,H,p=[];
+  function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;}
+  function init(){resize();p=Array.from({length:30},()=>({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.3,vy:(Math.random()-.5)*.3,s:Math.random()+.3,l:Math.random(),ml:Math.random()*.5+.3}));}
+  function draw(){ctx.clearRect(0,0,W,H);p.forEach(d=>{d.x+=d.vx;d.y+=d.vy;d.l+=.003;if(d.x<0||d.x>W||d.y<0||d.y>H||d.l>d.ml){d.x=Math.random()*W;d.y=Math.random()*H;d.l=0;}const a=Math.sin(d.l/d.ml*Math.PI)*.3;ctx.fillStyle=`rgba(200,132,90,${a})`;ctx.beginPath();ctx.arc(d.x,d.y,d.s,0,Math.PI*2);ctx.fill();});requestAnimationFrame(draw);}
+  window.addEventListener('resize',resize);init();draw();
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analysing — CPPS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="scanline-overlay"></div>
+<canvas id="particle-canvas"></canvas>
+
+<div class="page-wrapper">
+
+  <nav class="topbar">
+    <a href="/" class="topbar-logo">
+      <div class="logo-icon"></div>
+      <div>
+        <div class="logo-text">CPPS</div>
+        <div class="logo-sub">Crowd Panic Prediction System</div>
+      </div>
+    </a>
+  </nav>
+
+  <div class="progress-page">
+    <div class="progress-card">
+
+      <div class="scanning-ring" style="position:relative"></div>
+
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px;">
+        Processing video
+      </div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:32px;">
+        Job <span style="color:var(--accent)">{{ job_id[:8].upper() }}...</span>
+      </div>
+
+      <div class="progress-pct-display" id="progress-pct">
+        0<span style="font-size:24px;font-weight:400">%</span>
+      </div>
+
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-dim);margin-bottom:16px;letter-spacing:.04em;">
+        <span id="status-text" style="color:var(--text-secondary)">Initialising...</span>
+      </div>
+
+      <div class="progress-wrap mb-24" style="height:5px">
+        <div class="progress-fill" id="progress-bar" style="width:0%"></div>
+      </div>
+
+      <ul class="processing-steps" id="steps-list">
+        <li id="step1">Decoding video frames</li>
+        <li id="step2">Running background subtraction (MOG2)</li>
+        <li id="step3">Computing dense optical flow (Farneback)</li>
+        <li id="step4">Calculating motion entropy and divergence</li>
+        <li id="step5">Fusing signals into panic score</li>
+        <li id="step6">Generating annotated key frames</li>
+      </ul>
+
+      <div id="error-msg" style="color:var(--risk-critical);font-family:var(--font-mono);font-size:12px;margin-top:16px;display:none"></div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+const jobId = "{{ job_id }}";
+const bar    = document.getElementById('progress-bar');
+const pct    = document.getElementById('progress-pct');
+const stText = document.getElementById('status-text');
+const errMsg = document.getElementById('error-msg');
+const thresholds = [5, 25, 50, 70, 88, 97];
+
+function highlightSteps(progress) {
+  [1,2,3,4,5,6].forEach((s, i) => {
+    const el = document.getElementById('step' + s);
+    if (progress >= thresholds[i]) el.classList.add('done');
+  });
+}
+
+function poll() {
+  fetch('/api/job/' + jobId)
+    .then(r => r.json())
+    .then(data => {
+      bar.style.width = data.progress + '%';
+      pct.innerHTML = data.progress + '<span style="font-size:24px;font-weight:400">%</span>';
+      stText.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1) + '...';
+      highlightSteps(data.progress);
+
+      if (data.status === 'done') {
+        stText.textContent = 'Complete — redirecting';
+        setTimeout(() => { window.location = '/result/' + jobId; }, 800);
+      } else if (data.status === 'error') {
+        errMsg.textContent = '⚠ ' + (data.error || 'Unknown error');
+        errMsg.style.display = 'block';
+      } else {
+        setTimeout(poll, 1500);
+      }
+    })
+    .catch(() => setTimeout(poll, 2000));
+}
+
+poll();
+</script>
+
+<script>
+(function() {
+  const canvas = document.getElementById('particle-canvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, p = [];
+  function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+  function init() { resize(); p = Array.from({length:30}, () => ({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.3,vy:(Math.random()-.5)*.3,s:Math.random()+.3,l:Math.random(),ml:Math.random()*.5+.3})); }
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    p.forEach(d=>{d.x+=d.vx;d.y+=d.vy;d.l+=.003;if(d.x<0||d.x>W||d.y<0||d.y>H||d.l>d.ml){d.x=Math.random()*W;d.y=Math.random()*H;d.l=0;}
+    const a=Math.sin(d.l/d.ml*Math.PI)*.35;ctx.fillStyle=`rgba(200,132,90,${a})`;ctx.beginPath();ctx.arc(d.x,d.y,d.s,0,Math.PI*2);ctx.fill();});
+    requestAnimationFrame(draw);
+  }
+  window.addEventListener('resize',resize); init(); draw();
+})();
+</script>
+
+</body>
+</html>

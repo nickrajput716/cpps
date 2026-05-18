@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Monitor — CPPS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="scanline-overlay"></div>
+<canvas id="particle-canvas"></canvas>
+
+<div class="page-wrapper">
+
+  <nav class="topbar">
+    <a href="/" class="topbar-logo">
+      <div class="logo-icon"></div>
+      <div>
+        <div class="logo-text">CPPS</div>
+        <div class="logo-sub">Crowd Panic Prediction System</div>
+      </div>
+    </a>
+    <div class="topbar-nav">
+      <span id="liveStatus" class="status-dot">Camera offline</span>
+  
+    </div>
+  </nav>
+
+  <div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="breadcrumb-sep">›</span>
+    <span>Live Monitor</span>
+  </div>
+
+  <div style="margin-bottom:28px">
+    <h2 style="font-family:var(--font-display);font-size:26px;font-weight:800;color:var(--text-primary);margin-bottom:6px;letter-spacing:-0.01em">
+      Live Webcam Monitor
+    </h2>
+    <p style="font-size:13px;color:var(--text-dim);font-family:var(--font-mono)">
+      Session&nbsp;<span style="color:var(--accent)">{{ session_id[:8].upper() }}</span>
+      &nbsp;·&nbsp;Frames analysed server-side via optical flow every 1 second
+    </p>
+  </div>
+
+  <!-- CONTROLS -->
+  <div style="display:flex;gap:12px;margin-bottom:32px;flex-wrap:wrap">
+    <button class="btn btn-primary" id="startBtn" onclick="startCamera()">Start Camera</button>
+    <button class="btn btn-danger"  id="stopBtn"  onclick="stopCamera()" disabled>Stop Camera</button>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div class="live-grid">
+
+    <!-- LEFT: Camera feeds -->
+    <div>
+      <div class="cam-panel mb-20">
+        <div class="cam-header">
+          <span class="cam-title">Webcam Input</span>
+          <span class="status-dot" id="camDot" style="opacity:0.25">Live</span>
+        </div>
+        <div class="cam-body">
+          <video id="webcam" autoplay muted playsinline style="width:100%;display:block;aspect-ratio:16/9;background:#050403"></video>
+          <canvas id="capture" width="480" height="270" style="display:none"></canvas>
+        </div>
+      </div>
+
+      <div class="cam-panel">
+        <div class="cam-header">
+          <span class="cam-title">Server Output — Optical Flow</span>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);letter-spacing:.04em">Green = slow · Red = fast</span>
+        </div>
+        <div class="cam-body">
+          <img id="annotated" alt="Waiting for frames…" style="width:100%;display:block;aspect-ratio:16/9;background:#050403;object-fit:cover">
+          <div class="cam-overlay">Arrows = motion vectors · Banner = current panic score</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Stats -->
+    <div>
+
+      <!-- Score -->
+      <div class="panel mb-20">
+        <div class="panel-title">Live Score</div>
+        <div style="text-align:center;padding:4px 0 16px">
+          <div id="bigScore" style="font-family:var(--font-display);font-size:68px;font-weight:800;color:var(--accent);line-height:1;letter-spacing:-0.03em;transition:color .3s">
+            —
+          </div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin:4px 0 14px">/ 100</div>
+          <span class="risk-badge NORMAL" id="riskBadge" style="font-size:12px;padding:4px 14px">—</span>
+        </div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="panel mb-20">
+        <div class="panel-title">Signal Metrics</div>
+        <div class="metric-row">
+          <span class="metric-key">Avg Speed</span>
+          <span class="metric-val" id="s_speed">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-key">Direction Entropy</span>
+          <span class="metric-val" id="s_entropy">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-key">Crowd Density</span>
+          <span class="metric-val" id="s_density">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-key">Acceleration</span>
+          <span class="metric-val" id="s_accel">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-key">Frames Sent</span>
+          <span class="metric-val mono" id="s_frames" style="color:var(--text-secondary)">0</span>
+        </div>
+      </div>
+
+      <!-- History chart -->
+      <div class="panel mb-20">
+        <div class="panel-title">Score History</div>
+        <canvas id="histChart" style="width:100%;height:130px;display:block"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:8px">
+          <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-dim)">← 60 readings</span>
+          <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-dim)">latest →</span>
+        </div>
+      </div>
+
+      <!-- Alert log -->
+      <div class="panel">
+        <div class="panel-title">Alert Log</div>
+        <div class="alert-log" id="alertLog">
+          <div style="color:var(--text-dim);font-size:11px">No alerts — camera offline</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- NOTES -->
+  <div class="section-header mb-16 mt-32">
+    <span class="section-label">Notes</span>
+    <div class="section-line"></div>
+  </div>
+
+  <div class="panel" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px">
+    <div>
+      <div style="font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--accent);text-transform:uppercase;margin-bottom:8px">Motion Needed</div>
+      <p class="text-dim">Optical flow requires movement between frames. Static scenes will score near zero regardless of crowd size.</p>
+    </div>
+    <div>
+      <div style="font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--accent);text-transform:uppercase;margin-bottom:8px">Best Results</div>
+      <p class="text-dim">Point the camera at a walkway, crowd video, or simulation for meaningful readings.</p>
+    </div>
+    <div>
+      <div style="font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.12em;color:var(--accent);text-transform:uppercase;margin-bottom:8px">Latency</div>
+      <p class="text-dim">Processing runs server-side. Network conditions will affect the refresh rate.</p>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <span class="footer-text">CPPS v2.0 · Live Webcam Mode · Python + Flask + OpenCV</span>
+  </footer>
+
+</div>
+
+<script>
+const SESSION_ID = "{{ session_id }}";
+let stream = null, timer = null, frameCount = 0, scoreHistory = [];
+
+function drawHistory(canvas, data) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth * devicePixelRatio;
+  const H = canvas.offsetHeight * devicePixelRatio;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fillRect(0,0,W,H);
+
+  [[25,'rgba(122,158,138,0.25)'],[45,'rgba(200,168,74,0.25)'],[65,'rgba(200,122,58,0.25)'],[80,'rgba(184,64,64,0.3)']].forEach(([v,c])=>{
+    const y=H-(v/100)*H;
+    ctx.strokeStyle=c;ctx.lineWidth=1;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();ctx.setLineDash([]);
+  });
+
+  if (data.length < 2) return;
+
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'rgba(200,132,90,0.25)');
+  grad.addColorStop(1,'rgba(200,132,90,0)');
+
+  ctx.beginPath();
+  data.forEach((v,i)=>{ const x=(i/(data.length-1))*W,y=H-(v/100)*H; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.closePath();
+  ctx.fillStyle=grad;ctx.fill();
+
+  ctx.beginPath();
+  data.forEach((v,i)=>{ const x=(i/(data.length-1))*W,y=H-(v/100)*H; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.strokeStyle='#c8845a';ctx.lineWidth=1.8;ctx.stroke();
+
+  const lv=data[data.length-1];
+  const lx=W,ly=H-(lv/100)*H;
+  ctx.fillStyle=lv>=80?'#b84040':lv>=65?'#c87a3a':'#c8845a';
+  ctx.beginPath();ctx.arc(lx,ly,5,0,Math.PI*2);ctx.fill();
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    document.getElementById('webcam').srcObject = stream;
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled  = false;
+    document.getElementById('camDot').style.opacity = '1';
+    document.getElementById('liveStatus').textContent = 'Camera live';
+    document.getElementById('alertLog').innerHTML = '<div class="alert-entry" style="color:var(--sage)">System armed — analysing every 1 s</div>';
+    timer = setInterval(sendFrame, 1000);
+  } catch(e) {
+    alert('Camera access denied or unavailable:\n' + e.message);
+  }
+}
+
+function stopCamera() {
+  clearInterval(timer);
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  stream = null;
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled  = true;
+  document.getElementById('camDot').style.opacity = '0.25';
+  document.getElementById('liveStatus').textContent = 'Camera offline';
+}
+
+async function sendFrame() {
+  const video  = document.getElementById('webcam');
+  const canvas = document.getElementById('capture');
+  const ctx    = canvas.getContext('2d');
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  const dataURL = canvas.toDataURL('image/jpeg',0.7);
+  frameCount++;
+  document.getElementById('s_frames').textContent = frameCount;
+  try {
+    const res  = await fetch('/api/live_frame',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:SESSION_ID,frame:dataURL})});
+    const data = await res.json();
+    updateUI(data);
+  } catch(e) { console.error(e); }
+}
+
+function updateUI(data) {
+  if (data.status === 'initialising') return;
+  const score = data.panic_score, risk = data.risk;
+  const bigScore = document.getElementById('bigScore');
+  bigScore.textContent = score;
+  const col = score>=80?'var(--risk-critical)':score>=65?'var(--risk-high)':score>=45?'var(--risk-moderate)':score>=25?'var(--risk-low)':'var(--risk-normal)';
+  bigScore.style.color = col;
+
+  const badge = document.getElementById('riskBadge');
+  badge.textContent = risk; badge.className = 'risk-badge ' + risk;
+
+  document.getElementById('s_speed').textContent   = data.metrics.speed   ?? '—';
+  document.getElementById('s_entropy').textContent = data.metrics.entropy  ?? '—';
+  document.getElementById('s_density').textContent = data.metrics.density  ?? '—';
+  document.getElementById('s_accel').textContent   = data.metrics.accel    ?? '—';
+
+  if (data.frame_b64) document.getElementById('annotated').src = 'data:image/jpeg;base64,'+data.frame_b64;
+
+  scoreHistory = data.history || scoreHistory;
+  drawHistory(document.getElementById('histChart'), scoreHistory);
+
+  if (risk==='HIGH'||risk==='CRITICAL') {
+    const log = document.getElementById('alertLog');
+    const time = new Date().toLocaleTimeString();
+    const entry = document.createElement('div');
+    entry.className='alert-entry '+risk;
+    entry.textContent='['+time+'] '+risk+' — Score '+score;
+    log.insertBefore(entry,log.firstChild);
+    if (log.children.length>20) log.removeChild(log.lastChild);
+  }
+}
+
+window.addEventListener('resize',()=>{ if(scoreHistory.length>0) drawHistory(document.getElementById('histChart'),scoreHistory); });
+</script>
+
+<script>
+(function(){
+  const canvas=document.getElementById('particle-canvas');
+  const ctx=canvas.getContext('2d');
+  let W,H,p=[];
+  function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;}
+  function init(){resize();p=Array.from({length:30},()=>({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.3,vy:(Math.random()-.5)*.3,s:Math.random()+.3,l:Math.random(),ml:Math.random()*.5+.3}));}
+  function draw(){ctx.clearRect(0,0,W,H);p.forEach(d=>{d.x+=d.vx;d.y+=d.vy;d.l+=.003;if(d.x<0||d.x>W||d.y<0||d.y>H||d.l>d.ml){d.x=Math.random()*W;d.y=Math.random()*H;d.l=0;}const a=Math.sin(d.l/d.ml*Math.PI)*.3;ctx.fillStyle=`rgba(200,132,90,${a})`;ctx.beginPath();ctx.arc(d.x,d.y,d.s,0,Math.PI*2);ctx.fill();});requestAnimationFrame(draw);}
+  window.addEventListener('resize',resize);init();draw();
+})();
+</script>
+
+</body>
+</html>
